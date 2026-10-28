@@ -1,0 +1,49 @@
+# Local / single-host stack: PostgreSQL + API.
+#   cp .env.example .env   # then edit secrets
+#   docker compose up --build
+# API: http://localhost:8000  ·  docs: http://localhost:8000/docs  ·  readiness: /health/ready
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-career}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-career_agent}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"   # localhost only; remove to keep the database private to the stack
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      args:
+        WITH_EMBEDDINGS: ${WITH_EMBEDDINGS:-true}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Built from the POSTGRES_* values so the two can't drift apart.
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-career}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-career_agent}
+      UPLOAD_DIR: /app/uploads/resumes
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - uploads:/app/uploads
+
+  # frontend:   # added when the frontend is built
+  #   build: ./frontend
+  #   ports: ["5173:80"]
+  #   depends_on: [backend]
+
+volumes:
+  pgdata:
+  uploads:
